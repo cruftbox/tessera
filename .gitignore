@@ -13,3 +13,7 @@ tools/node_modules
 
 # Firmware backups / binaries
 *.bin
+
+# Design prompts — not for the repo
+tessera-prompt.md
+*ESP32 Smart.md
