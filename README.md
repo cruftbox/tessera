@@ -70,4 +70,4 @@ platformio.ini, partitions_16MB_ota.csv
 
 ## License
 
-TBD.
+[MIT](LICENSE).
