@@ -30,11 +30,15 @@ static lv_obj_t *thermo_tile, *thermo_tile_val, *thermo_tile_pip, *thermo_tile_i
 static ThermoState thermo = { "off", 0, 70, 74, 70, true, false };
 static lv_obj_t *thermo_view;                 // full-screen overlay (hidden by default)
 static lv_obj_t *tv_current;                  // big current-temp label
-static lv_obj_t *tv_mode_btns[4];
+static lv_obj_t *tv_action;                   // hvac action status (Heating/Cooling/Idle)
 static lv_obj_t *tv_low_row, *tv_high_row, *tv_single_row;
 static lv_obj_t *tv_low_val, *tv_high_val, *tv_single_val;
-static const char* const TV_MODES[4]   = { "off", "heat", "cool", "heat_cool" };
-static const char* const TV_MODE_LBL[4] = { "Off", "Heat", "Cool", "Auto" };
+static lv_obj_t *tv_fan_btns[5], *tv_fan_lbls[5];
+static int       fan_active = 0;  // index of the fan button currently in effect (0 = Off)
+static uint32_t  fan_off_at = 0;  // millis() when the timed fan run should stop (0 = none)
+static bool      setpoint_pending = false;  // local setpoint edits waiting to be sent
+static uint32_t  setpoint_tap_ms  = 0;      // time of last setpoint tap (for debounce)
+static uint32_t  setpoint_send_ms = 0;      // time we last sent (ignore echoes briefly after)
 static bool tile_is_on[MOSAIC_COUNT] = { false };
 static lv_obj_t *status_dot;
 static lv_obj_t *online_label;
@@ -151,6 +155,29 @@ void ui_swipe_page(int delta) {
 
 static int clampt(int v) { return v < THERMO_MIN ? THERMO_MIN : (v > THERMO_MAX ? THERMO_MAX : v); }
 
+// Frosted translucent-white button to match the front-page tile language.
+static void style_frosted_btn(lv_obj_t* b) {
+  lv_obj_set_style_radius(b, 12, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(b, 38, LV_PART_MAIN);
+  lv_obj_set_style_border_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_border_opa(b, 72, LV_PART_MAIN);
+  lv_obj_set_style_border_width(b, 1, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
+}
+
+// Highlight the fan button currently in effect: active = solid white + dark text,
+// others = frosted + white text (same on/off language as the tiles).
+static void update_fan_buttons() {
+  for (int i = 0; i < 5; i++) {
+    if (!tv_fan_btns[i]) continue;
+    bool act = (i == fan_active);
+    lv_obj_set_style_bg_opa(tv_fan_btns[i], act ? LV_OPA_COVER : 38, LV_PART_MAIN);
+    lv_obj_set_style_text_color(tv_fan_lbls[i],
+      act ? lv_color_hex(0x1F2330) : lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  }
+}
+
 // Tile value line = setpoint summary (distinct from the header's current-temp glance).
 static void thermo_tile_refresh() {
   if (!thermo_tile_val) return;
@@ -171,11 +198,22 @@ static void render_thermo_view() {
   char b[16];
   snprintf(b, sizeof(b), "%d°", thermo.current);
   lv_label_set_text(tv_current, b);
-  for (int i = 0; i < 4; i++) {
-    bool active = strcmp(thermo.mode, TV_MODES[i]) == 0;
-    lv_obj_set_style_bg_color(tv_mode_btns[i],
-      active ? lv_color_hex(0x22D3EE) : lv_color_hex(0x374151), LV_PART_MAIN);
+
+  // hvac action status under the current temp
+  if (strcmp(thermo.action, "heating") == 0) {
+    lv_label_set_text(tv_action, "Heating");
+    lv_obj_set_style_text_color(tv_action, lv_color_hex(0xFB923C), LV_PART_MAIN);   // warm orange
+  } else if (strcmp(thermo.action, "cooling") == 0) {
+    lv_label_set_text(tv_action, "Cooling");
+    lv_obj_set_style_text_color(tv_action, lv_color_hex(0x22D3EE), LV_PART_MAIN);   // cool cyan
+  } else if (strcmp(thermo.mode, "off") == 0) {
+    lv_label_set_text(tv_action, "Off");
+    lv_obj_set_style_text_color(tv_action, lv_color_hex(0xCBD5E1), LV_PART_MAIN);
+  } else {
+    lv_label_set_text(tv_action, "Idle");
+    lv_obj_set_style_text_color(tv_action, lv_color_hex(0xCBD5E1), LV_PART_MAIN);
   }
+
   bool off = strcmp(thermo.mode, "off") == 0;
   lv_obj_add_flag(tv_low_row,    LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(tv_high_row,   LV_OBJ_FLAG_HIDDEN);
@@ -191,14 +229,6 @@ static void render_thermo_view() {
   }
 }
 
-static void mode_cb(lv_event_t* e) {
-  int i = (int)(intptr_t)lv_event_get_user_data(e);
-  ha_climate_set_mode(TV_MODES[i]);
-  strncpy(thermo.mode, TV_MODES[i], sizeof(thermo.mode) - 1);
-  thermo.dual = (strcmp(thermo.mode, "heat_cool") == 0);
-  render_thermo_view();
-}
-
 // user_data code: (which<<1)|dir  -> which 0=low 1=high 2=single, dir 1=up 0=down
 static void setpoint_cb(lv_event_t* e) {
   int code = (int)(intptr_t)lv_event_get_user_data(e);
@@ -211,9 +241,34 @@ static void setpoint_cb(lv_event_t* e) {
     if (which == 0) thermo.high = thermo.low;
     else            thermo.low  = thermo.high;
   }
-  render_thermo_view();
-  if (thermo.dual) ha_climate_set_temp_dual(thermo.low, thermo.high);
-  else             ha_climate_set_temp_single(thermo.target);
+  // Update only the affected value label(s) — a full render_thermo_view() per tap
+  // is too heavy (re-blends the whole translucent/gradient view) and feels laggy.
+  char vb[8];
+  if (thermo.dual) {
+    snprintf(vb, sizeof(vb), "%d°", thermo.low);  lv_label_set_text(tv_low_val, vb);
+    snprintf(vb, sizeof(vb), "%d°", thermo.high); lv_label_set_text(tv_high_val, vb);
+  } else {
+    snprintf(vb, sizeof(vb), "%d°", thermo.target); lv_label_set_text(tv_single_val, vb);
+  }
+  // Defer the actual service call until the user stops tapping (debounce), and
+  // mark setpoints as locally-owned so HA echoes don't fight the displayed number.
+  setpoint_pending = true;
+  setpoint_tap_ms  = millis();
+}
+
+// Fan buttons by index: 0=Off, 1=1h, 2=2h, 3=4h, 4=On(ongoing).
+static void fan_cb(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  if (i == 0)      { ha_thermo_fan(false); fan_off_at = 0; }
+  else if (i == 4) { ha_thermo_fan(true);  fan_off_at = 0; }   // ongoing, no auto-off
+  else {
+    int hrs = (i == 1) ? 1 : (i == 2) ? 2 : 4;
+    ha_thermo_fan(true);
+    fan_off_at = millis() + (uint32_t)hrs * 3600000UL;
+    if (fan_off_at == 0) fan_off_at = 1;
+  }
+  fan_active = i;
+  update_fan_buttons();
 }
 
 static void thermo_close_cb(lv_event_t*) { lv_obj_add_flag(thermo_view, LV_OBJ_FLAG_HIDDEN); }
@@ -242,9 +297,10 @@ static lv_obj_t* make_setpoint_row(lv_obj_t* parent, const char* caption,
   lv_obj_t* minus = lv_btn_create(row);
   lv_obj_set_size(minus, 50, 50);
   lv_obj_align(minus, LV_ALIGN_RIGHT_MID, -160, 0);
-  lv_obj_set_style_bg_color(minus, lv_color_hex(0x374151), LV_PART_MAIN);
+  style_frosted_btn(minus);
   lv_obj_t* ml = lv_label_create(minus); lv_label_set_text(ml, "-");
   lv_obj_set_style_text_font(ml, &lv_font_montserrat_24, LV_PART_MAIN);
+  lv_obj_set_style_text_color(ml, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
   lv_obj_center(ml);
   lv_obj_add_event_cb(minus, setpoint_cb, LV_EVENT_CLICKED, (void*)(intptr_t)minusCode);
 
@@ -257,9 +313,10 @@ static lv_obj_t* make_setpoint_row(lv_obj_t* parent, const char* caption,
   lv_obj_t* plus = lv_btn_create(row);
   lv_obj_set_size(plus, 50, 50);
   lv_obj_align(plus, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_bg_color(plus, lv_color_hex(0x374151), LV_PART_MAIN);
+  style_frosted_btn(plus);
   lv_obj_t* pl = lv_label_create(plus); lv_label_set_text(pl, "+");
   lv_obj_set_style_text_font(pl, &lv_font_montserrat_24, LV_PART_MAIN);
+  lv_obj_set_style_text_color(pl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
   lv_obj_center(pl);
   lv_obj_add_event_cb(plus, setpoint_cb, LV_EVENT_CLICKED, (void*)(intptr_t)plusCode);
   return row;
@@ -269,15 +326,17 @@ static void build_thermo_view(lv_obj_t* scr) {
   thermo_view = lv_obj_create(scr);
   lv_obj_set_size(thermo_view, 480, 480);
   lv_obj_set_pos(thermo_view, 0, 0);
-  lv_obj_set_style_bg_color(thermo_view, lv_color_hex(0x10131A), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(thermo_view, lv_color_hex(0x4F7CFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_grad(thermo_view, &bg_grad, LV_PART_MAIN);   // match front page
   lv_obj_set_style_bg_opa(thermo_view, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(thermo_view, 0, LV_PART_MAIN);
   lv_obj_set_style_border_width(thermo_view, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(thermo_view, 0, LV_PART_MAIN);
   lv_obj_clear_flag(thermo_view, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(thermo_view, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* title = lv_label_create(thermo_view);
-  lv_label_set_text(title, "Thermostat");
+  lv_label_set_text(title, "Nest Thermostat");
   lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_16, LV_PART_MAIN);
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 16);
@@ -285,8 +344,9 @@ static void build_thermo_view(lv_obj_t* scr) {
   lv_obj_t* close = lv_btn_create(thermo_view);
   lv_obj_set_size(close, 44, 44);
   lv_obj_align(close, LV_ALIGN_TOP_RIGHT, -12, 8);
-  lv_obj_set_style_bg_color(close, lv_color_hex(0x374151), LV_PART_MAIN);
+  style_frosted_btn(close);
   lv_obj_t* xl = lv_label_create(close); lv_label_set_text(xl, LV_SYMBOL_CLOSE);
+  lv_obj_set_style_text_color(xl, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
   lv_obj_center(xl);
   lv_obj_add_event_cb(close, thermo_close_cb, LV_EVENT_CLICKED, NULL);
 
@@ -296,29 +356,46 @@ static void build_thermo_view(lv_obj_t* scr) {
   lv_obj_set_style_text_font(tv_current, &lv_font_montserrat_32, LV_PART_MAIN);
   lv_obj_align(tv_current, LV_ALIGN_TOP_MID, 0, 56);
 
-  lv_obj_t* cur_cap = lv_label_create(thermo_view);
-  lv_label_set_text(cur_cap, "Current");
-  lv_obj_set_style_text_color(cur_cap, lv_color_hex(0x8B949E), LV_PART_MAIN);
-  lv_obj_set_style_text_font(cur_cap, &lv_font_montserrat_12, LV_PART_MAIN);
-  lv_obj_align(cur_cap, LV_ALIGN_TOP_MID, 0, 100);
+  tv_action = lv_label_create(thermo_view);
+  lv_label_set_text(tv_action, "");
+  lv_obj_set_style_text_font(tv_action, &lv_font_montserrat_16, LV_PART_MAIN);
+  lv_obj_align(tv_action, LV_ALIGN_TOP_MID, 0, 102);
 
-  // mode buttons row
-  int bw = 104, bg = 6, x0 = (480 - (4 * bw + 3 * bg)) / 2;
-  for (int i = 0; i < 4; i++) {
-    tv_mode_btns[i] = lv_btn_create(thermo_view);
-    lv_obj_set_size(tv_mode_btns[i], bw, 46);
-    lv_obj_set_pos(tv_mode_btns[i], x0 + i * (bw + bg), 130);
-    lv_obj_set_style_radius(tv_mode_btns[i], 10, LV_PART_MAIN);
-    lv_obj_t* l = lv_label_create(tv_mode_btns[i]);
-    lv_label_set_text(l, TV_MODE_LBL[i]);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, LV_PART_MAIN);
-    lv_obj_center(l);
-    lv_obj_add_event_cb(tv_mode_btns[i], mode_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+  tv_low_row    = make_setpoint_row(thermo_view, "Heat to", &tv_low_val,    (0 << 1) | 0, (0 << 1) | 1, 150);
+  tv_high_row   = make_setpoint_row(thermo_view, "Cool to", &tv_high_val,   (1 << 1) | 0, (1 << 1) | 1, 214);
+  tv_single_row = make_setpoint_row(thermo_view, "Set to",  &tv_single_val, (2 << 1) | 0, (2 << 1) | 1, 150);
+
+  // Fan timer row
+  lv_obj_t* fan_cap = lv_label_create(thermo_view);
+  lv_label_set_text(fan_cap, "Fan");
+  lv_obj_set_style_text_color(fan_cap, lv_color_hex(0xF0F6FC), LV_PART_MAIN);
+  lv_obj_set_style_text_font(fan_cap, &lv_font_montserrat_16, LV_PART_MAIN);
+  lv_obj_align(fan_cap, LV_ALIGN_TOP_LEFT, 20, 300);
+
+  static const char* const FAN_LBL[5] = { "Off", "1h", "2h", "4h", "On" };
+  int fbw = 83, fbg = 6, fx0 = (480 - (5 * fbw + 4 * fbg)) / 2;
+  for (int i = 0; i < 5; i++) {
+    tv_fan_btns[i] = lv_btn_create(thermo_view);
+    lv_obj_set_size(tv_fan_btns[i], fbw, 44);
+    lv_obj_set_pos(tv_fan_btns[i], fx0 + i * (fbw + fbg), 326);
+    style_frosted_btn(tv_fan_btns[i]);
+    tv_fan_lbls[i] = lv_label_create(tv_fan_btns[i]);
+    lv_label_set_text(tv_fan_lbls[i], FAN_LBL[i]);
+    lv_obj_set_style_text_font(tv_fan_lbls[i], &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_center(tv_fan_lbls[i]);
+    lv_obj_add_event_cb(tv_fan_btns[i], fan_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
   }
+  update_fan_buttons();
+}
 
-  tv_low_row    = make_setpoint_row(thermo_view, "Heat to", &tv_low_val,    (0 << 1) | 0, (0 << 1) | 1, 200);
-  tv_high_row   = make_setpoint_row(thermo_view, "Cool to", &tv_high_val,   (1 << 1) | 0, (1 << 1) | 1, 262);
-  tv_single_row = make_setpoint_row(thermo_view, "Set to",  &tv_single_val, (2 << 1) | 0, (2 << 1) | 1, 200);
+// Debounced setpoint send: ~500 ms after the last tap, push one service call.
+static void setpoint_flush_cb(lv_timer_t*) {
+  if (setpoint_pending && millis() - setpoint_tap_ms > 500) {
+    setpoint_pending = false;
+    setpoint_send_ms = millis();
+    if (thermo.dual) ha_climate_set_temp_dual(thermo.low, thermo.high);
+    else             ha_climate_set_temp_single(thermo.target);
+  }
 }
 
 static void time_cb(lv_timer_t*) {
@@ -327,6 +404,14 @@ static void time_cb(lv_timer_t*) {
   char buf[32];
   strftime(buf, sizeof(buf), "%I:%M %p", &t);
   lv_label_set_text(time_label, buf[0] == '0' ? buf + 1 : buf);
+
+  // Auto-off for a timed fan run.
+  if (fan_off_at != 0 && (int32_t)(millis() - fan_off_at) >= 0) {
+    fan_off_at = 0;
+    fan_active = 0;
+    update_fan_buttons();
+    ha_thermo_fan(false);
+  }
 }
 
 static void dim_cb(lv_timer_t*) {
@@ -547,7 +632,7 @@ void ui_init() {
     lv_obj_align(thermo_tile_pip, LV_ALIGN_TOP_RIGHT, 0, 0);
 
     lv_obj_t* nm = lv_label_create(thermo_tile);
-    lv_label_set_text(nm, "Thermostat");
+    lv_label_set_text(nm, "Nest Thermostat");
     lv_obj_set_style_text_color(nm, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, LV_PART_MAIN);
     lv_obj_align(nm, LV_ALIGN_BOTTOM_LEFT, 0, -18);
@@ -575,6 +660,7 @@ void ui_init() {
   build_thermo_view(scr);
 
   // ---- Timers ----
+  lv_timer_create(setpoint_flush_cb, 150, NULL);
   lv_timer_create(time_cb, 1000, NULL);
   lv_timer_create(dim_cb, 5000, NULL);
   time_cb(NULL);
@@ -610,9 +696,21 @@ void ui_set_outdoor_temp(int deg) {
 }
 
 void ui_update_thermostat(const ThermoState* s) {
+  // While the user is adjusting (or just sent), keep the locally-owned setpoints
+  // so HA's lagging echoes don't make the number jump back and "catch up".
+  bool editing = setpoint_pending || (millis() - setpoint_send_ms < 3000);
+  int keep_low = thermo.low, keep_high = thermo.high, keep_target = thermo.target;
   thermo = *s;
+  if (editing) { thermo.low = keep_low; thermo.high = keep_high; thermo.target = keep_target; }
   thermo_tile_refresh();
   render_thermo_view();
+}
+
+// Sync fan-button highlight with the real fan entity state from HA.
+void ui_set_fan_state(bool on) {
+  if (!on) { fan_active = 0; fan_off_at = 0; }
+  else if (fan_active == 0) { fan_active = 4; }  // on (unknown duration) -> "On"
+  update_fan_buttons();
 }
 
 void ui_set_ha_connected(bool connected) {

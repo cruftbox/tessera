@@ -15,6 +15,7 @@
 // current_temperature, outdoor from a weather entity's temperature attribute.
 #define ENTITY_INDOOR_TEMP  "climate.your_thermostat"
 #define ENTITY_OUTDOOR_TEMP "weather.forecast_home"
+#define ENTITY_THERMO_FAN   "fan.your_thermostat_fan"
 #define HA_TOKEN  "YOUR_LONG_LIVED_ACCESS_TOKEN"   // HA profile -> Long-Lived Access Tokens
 
 // Time

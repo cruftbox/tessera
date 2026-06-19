@@ -21,5 +21,7 @@ typedef struct {
   int  target;     // temperature      (heat or cool single setpoint)
   bool dual;       // true in heat_cool (use low/high), false use target
   bool available;
+  char action[10]; // hvac_action: idle / heating / cooling / off
 } ThermoState;
 void ui_update_thermostat(const ThermoState* s);
+void ui_set_fan_state(bool on);

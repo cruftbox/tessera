@@ -65,6 +65,8 @@ static void push_thermostat(const char* state, JsonVariantConst attrs) {
   strncpy(s.mode, state ? state : "off", sizeof(s.mode) - 1);
   s.available = state && strcmp(state, "unavailable") != 0 && strcmp(state, "unknown") != 0;
   s.dual = (state && strcmp(state, "heat_cool") == 0);
+  const char* act = attrs["hvac_action"];
+  strncpy(s.action, act ? act : "", sizeof(s.action) - 1);
   if (!attrs["current_temperature"].isNull()) {
     s.current = (int)lroundf(attrs["current_temperature"].as<float>());
     ui_set_indoor_temp(s.current);
@@ -82,15 +84,35 @@ static void fetch_thermostat() {
   http.addHeader("Authorization", String("Bearer ") + HA_TOKEN);
   if (http.GET() == 200) {
     String body = http.getString();
-    StaticJsonDocument<192> filter;
+    StaticJsonDocument<384> filter;
     filter["state"] = true;
     filter["attributes"]["current_temperature"] = true;
     filter["attributes"]["target_temp_low"] = true;
     filter["attributes"]["target_temp_high"] = true;
     filter["attributes"]["temperature"] = true;
+    filter["attributes"]["hvac_action"] = true;
     DynamicJsonDocument doc(512);
     if (deserializeJson(doc, body, DeserializationOption::Filter(filter)) == DeserializationError::Ok) {
       push_thermostat(doc["state"], doc["attributes"]);
+    }
+  }
+  http.end();
+  ws.loop();
+}
+
+static void fetch_fan_state() {
+  String url = String("http://") + HA_HOST + ":" + HA_PORT + "/api/states/" + ENTITY_THERMO_FAN;
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Authorization", String("Bearer ") + HA_TOKEN);
+  if (http.GET() == 200) {
+    String body = http.getString();
+    StaticJsonDocument<32> filter;
+    filter["state"] = true;
+    DynamicJsonDocument doc(128);
+    if (deserializeJson(doc, body, DeserializationOption::Filter(filter)) == DeserializationError::Ok) {
+      const char* st = doc["state"];
+      if (st) ui_set_fan_state(strcmp(st, "on") == 0);
     }
   }
   http.end();
@@ -128,6 +150,7 @@ static void fetch_initial_states() {
     lv_timer_handler();
   }
   fetch_thermostat();
+  fetch_fan_state();
   fetch_one_temp(ENTITY_OUTDOOR_TEMP, "temperature", ui_set_outdoor_temp);
   Serial.println("Initial states fetched");
 }
@@ -135,8 +158,11 @@ static void fetch_initial_states() {
 static bool needs_fetch = false;
 
 static void on_message(uint8_t* payload, size_t length) {
-  // Large doc because get_states response can be big; use filter to trim it
-  StaticJsonDocument<128> filter;
+  // Large doc because get_states response can be big; use filter to trim it.
+  // NOTE: this filter doc must be big enough to hold ALL keys below — if it
+  // overflows, ArduinoJson silently drops the last-added keys (which caused the
+  // thermostat setpoints to come back as 0). Keep capacity comfortably large.
+  StaticJsonDocument<512> filter;
   filter["type"] = true;
   filter["success"] = true;
   filter["event"]["event_type"] = true;
@@ -148,6 +174,7 @@ static void on_message(uint8_t* payload, size_t length) {
   filter["event"]["data"]["new_state"]["attributes"]["temperature"] = true;
   filter["event"]["data"]["new_state"]["attributes"]["target_temp_low"] = true;
   filter["event"]["data"]["new_state"]["attributes"]["target_temp_high"] = true;
+  filter["event"]["data"]["new_state"]["attributes"]["hvac_action"] = true;
   filter["result"][0]["entity_id"] = true;
   filter["result"][0]["state"] = true;
 
@@ -194,6 +221,10 @@ static void on_message(uint8_t* payload, size_t length) {
       JsonVariantConst attrs = doc["event"]["data"]["new_state"]["attributes"];
       if (strcmp(eid, ENTITY_INDOOR_TEMP) == 0) {
         push_thermostat(est, attrs);   // updates header indoor temp + thermostat tile/detail
+        return;
+      }
+      if (strcmp(eid, ENTITY_THERMO_FAN) == 0) {
+        ui_set_fan_state(strcmp(est, "on") == 0);
         return;
       }
       if (strcmp(eid, ENTITY_OUTDOOR_TEMP) == 0) {
@@ -252,6 +283,7 @@ void ha_loop() {
   if (authenticated && millis() - last_temp_refresh > 120000) {
     last_temp_refresh = millis();
     fetch_thermostat();
+    fetch_fan_state();
     fetch_one_temp(ENTITY_OUTDOOR_TEMP, "temperature", ui_set_outdoor_temp);
   }
 }
@@ -281,6 +313,17 @@ void ha_fan_turn_on_pct(const char* entity_id, float pct) {
   doc["service"] = "turn_on";
   doc["service_data"]["entity_id"] = entity_id;
   doc["service_data"]["percentage"] = pct;
+  send_json(doc);
+}
+
+void ha_thermo_fan(bool on) {
+  if (!authenticated) return;
+  StaticJsonDocument<200> doc;
+  doc["id"] = msg_id++;
+  doc["type"] = "call_service";
+  doc["domain"] = "fan";
+  doc["service"] = on ? "turn_on" : "turn_off";
+  doc["service_data"]["entity_id"] = ENTITY_THERMO_FAN;
   send_json(doc);
 }
 

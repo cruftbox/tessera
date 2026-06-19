@@ -57,7 +57,10 @@ void setup() {
 }
 
 void loop() {
-  lv_tick_inc(5);
+  static uint32_t last_tick = 0;
+  uint32_t now = millis();
+  lv_tick_inc(now - last_tick);
+  last_tick = now;
   lv_timer_handler();
   ha_loop();
   delay(5);
