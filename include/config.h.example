@@ -1,0 +1,72 @@
+#pragma once
+
+// Copy this file to `config.h` and fill in your own values.
+// config.h is gitignored so your secrets are never committed.
+
+// WiFi
+#define WIFI_SSID      "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD  "YOUR_WIFI_PASSWORD"
+
+// Home Assistant
+#define HA_HOST   "192.168.1.10"   // your HA host IP
+#define HA_PORT   8123
+
+// Header temperatures (read-only): indoor from a climate entity's
+// current_temperature, outdoor from a weather entity's temperature attribute.
+#define ENTITY_INDOOR_TEMP  "climate.your_thermostat"
+#define ENTITY_OUTDOOR_TEMP "weather.forecast_home"
+#define HA_TOKEN  "YOUR_LONG_LIVED_ACCESS_TOKEN"   // HA profile -> Long-Lived Access Tokens
+
+// Time
+#define TZ_INFO    "PST8PDT,M3.2.0,M11.1.0"   // POSIX TZ string for your zone
+#define NTP_SERVER "pool.ntp.org"
+
+// Display
+#define IDLE_DIM_MS   60000
+#define BRIGHT_FULL   255
+#define BRIGHT_DIM    40
+
+// Backlight GPIO (verify against tested configs if backlight doesn't work)
+#define PIN_BACKLIGHT 38
+
+// GT911 touch pins (from NorthernMan54/ESP32-4848S040 — verify if touch doesn't work)
+#define PIN_TOUCH_SDA  19
+#define PIN_TOUCH_SCL  45
+#define PIN_TOUCH_INT  -1
+#define PIN_TOUCH_RST  -1
+
+// Material Design Icons glyphs (codepoints from @mdi/font; rendered with the
+// generated `mdi_icons` LVGL font). UCNs encode as UTF-8 for lv_label_set_text.
+#define ICON_LIGHTBULB     "\U000F0335"  // lightbulb
+#define ICON_FAN           "\U000F1797"  // ceiling-fan
+#define ICON_BED           "\U000F02E3"  // bed
+#define ICON_CEILING_LIGHT "\U000F0769"  // ceiling-light
+#define ICON_SOFA          "\U000F04B9"  // sofa
+#define ICON_COACH_LAMP    "\U000F1020"  // coach-lamp (outdoor)
+#define ICON_FAN_LIGHT     "\U000F1798"  // ceiling-fan-light
+#define ICON_HOME_TEMP     "\U000F0F55"  // home-thermometer-outline (indoor)
+#define ICON_WEATHER       "\U000F0595"  // weather-partly-cloudy (outdoor)
+#define ICON_THERMOSTAT    "\U000F0393"  // thermostat (climate tile)
+
+struct Tessera {
+  const char* label;
+  const char* entity_id;
+  uint8_t page;
+  float   on_pct;     // 0 = plain toggle; >0 = when turning a fan ON, start at this % speed
+  const char* icon;   // MDI glyph (ICON_* above)
+};
+
+// Define your own tiles here. Up to 9 per page (3x3 grid).
+static const Tessera MOSAIC[] = {
+  // label              entity_id                          page  on_pct  icon
+  { "Office Fan Light", "light.office_main_light",            0,   0,     ICON_LIGHTBULB },
+  { "Office Fan",       "fan.office_main_fan",                0,  16.67,  ICON_FAN },
+  { "Girls Room",       "switch.girls_room",                  0,   0,     ICON_BED },
+  { "Hallway",          "switch.hallway_light",               0,   0,     ICON_CEILING_LIGHT },
+  { "Front Room",       "light.front_room",                   0,   0,     ICON_SOFA },
+  { "Front Porch",      "switch.porch_light",                 0,   0,     ICON_COACH_LAMP },
+  { "Girls Room Fan Light", "light.girls_room_fan_main_light", 0,  0,     ICON_FAN_LIGHT },
+  { "Girls Room Fan",       "fan.girls_room_fan_main_fan",     0,  0,     ICON_FAN },
+};
+
+static const int MOSAIC_COUNT = sizeof(MOSAIC) / sizeof(MOSAIC[0]);
