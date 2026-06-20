@@ -5,11 +5,17 @@
 .vscode/launch.json
 .vscode/ipch
 
-# Secrets — real config is per-user; commit config.h.example instead
+# Secrets — per-user credentials written by the setup wizard; never commit.
+include/secrets.h
+
+# Per-user device layout (entities/tiles); commit config.h.example as the template.
 include/config.h
 
 # Icon-font tooling (node deps)
 tools/node_modules
+
+# Python bytecode (setup_wizard.py / serial_read.py)
+__pycache__/
 
 # Firmware backups / binaries
 *.bin

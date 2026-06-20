@@ -17,6 +17,7 @@
 #include "ha_client.h"
 #include "ota.h"
 #include "config.h"
+#include "secrets.h"   // WiFi creds, TZ/NTP (gitignored; see setup wizard)
 
 static lv_indev_drv_t indev_drv;
 

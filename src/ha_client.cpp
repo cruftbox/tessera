@@ -20,6 +20,7 @@
 #include "ha_client.h"
 #include "ui.h"
 #include "config.h"
+#include "secrets.h"   // HA_HOST/PORT/TOKEN (gitignored; see setup wizard)
 
 static WebSocketsClient ws;
 static bool authenticated = false;
