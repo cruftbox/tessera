@@ -31,7 +31,7 @@ void TAMC_GT911::reset() {
   setResolution(width, height);
 }
 void TAMC_GT911::calculateChecksum() {
-  uint8_t checksum;
+  uint8_t checksum = 0;
   for (uint8_t i=0; i<GT911_CONFIG_SIZE; i++) {
     checksum += configBuf[i];
   }
@@ -72,6 +72,7 @@ void TAMC_GT911::read(void) {
   uint8_t haveKey = pointInfo >> 4 & 1;
   isLargeDetect = pointInfo >> 6 & 1;
   touches = pointInfo & 0xF;
+  if (touches > 5) touches = 5;  // point count is a 4-bit field (0-15); clamp so the points[5] loop can't overflow on a noisy read
   // Serial.print("bufferStatus: ");Serial.println(bufferStatus);
   // Serial.print("largeDetect: ");Serial.println(isLargeDetect);
   // Serial.print("proximityValid: ");Serial.println(proximityValid);

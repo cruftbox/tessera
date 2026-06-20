@@ -67,6 +67,18 @@ static bool is_dimmed = false;
 // Background gradient stops (kept static — LVGL stores the pointer, not a copy).
 static lv_grad_dsc_t bg_grad;
 
+// The shared "frosted translucent card" fill — white at low opacity, hairline
+// white border, no shadow. Used by the OFF tiles, the thermostat tile, and the
+// detail-view buttons (style_frosted_btn). Leaves radius/padding to the caller.
+static void frosted_fill(lv_obj_t* o) {
+  lv_obj_set_style_bg_color(o, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(o, 38, LV_PART_MAIN);             // ~0.15
+  lv_obj_set_style_border_color(o, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+  lv_obj_set_style_border_opa(o, 72, LV_PART_MAIN);         // ~0.28
+  lv_obj_set_style_border_width(o, 1, LV_PART_MAIN);
+  lv_obj_set_style_shadow_width(o, 0, LV_PART_MAIN);
+}
+
 // Apply the uniform two-state tile styling (matches the design spec).
 static void apply_tile_style(int idx, bool on) {
   lv_obj_t* b = tile_btns[idx];
@@ -86,12 +98,7 @@ static void apply_tile_style(int idx, bool on) {
     lv_obj_set_style_text_opa(tile_icons[idx], LV_OPA_COVER, LV_PART_MAIN);
   } else {
     // Frosted translucent card over the gradient, white text, hollow pip.
-    lv_obj_set_style_bg_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(b, 38, LV_PART_MAIN);             // ~0.15
-    lv_obj_set_style_border_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(b, 72, LV_PART_MAIN);         // ~0.28
-    lv_obj_set_style_border_width(b, 1, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
+    frosted_fill(b);
     lv_obj_set_style_text_color(tile_labels[idx], lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_color(tile_values[idx], lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_opa(tile_values[idx], 184, LV_PART_MAIN);  // ~0.72
@@ -169,12 +176,7 @@ static int clampt(int v) { return v < THERMO_MIN ? THERMO_MIN : (v > THERMO_MAX 
 // Frosted translucent-white button to match the front-page tile language.
 static void style_frosted_btn(lv_obj_t* b) {
   lv_obj_set_style_radius(b, 12, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(b, 38, LV_PART_MAIN);
-  lv_obj_set_style_border_color(b, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-  lv_obj_set_style_border_opa(b, 72, LV_PART_MAIN);
-  lv_obj_set_style_border_width(b, 1, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(b, 0, LV_PART_MAIN);
+  frosted_fill(b);
 }
 
 // Highlight the fan button currently in effect: active = solid white + dark text,
@@ -619,11 +621,7 @@ void ui_init() {
     lv_obj_set_size(thermo_tile, TILE_W, TILE_H);
     lv_obj_set_style_radius(thermo_tile, 22, LV_PART_MAIN);
     lv_obj_set_style_pad_all(thermo_tile, 13, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(thermo_tile, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(thermo_tile, 38, LV_PART_MAIN);            // frosted neutral card
-    lv_obj_set_style_border_color(thermo_tile, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(thermo_tile, 72, LV_PART_MAIN);
-    lv_obj_set_style_border_width(thermo_tile, 1, LV_PART_MAIN);
+    frosted_fill(thermo_tile);                                        // frosted neutral card
     lv_obj_set_style_transform_width(thermo_tile, -3, LV_STATE_PRESSED);
     lv_obj_set_style_transform_height(thermo_tile, -3, LV_STATE_PRESSED);
     lv_obj_add_event_cb(thermo_tile, thermo_open_cb, LV_EVENT_CLICKED, NULL);
