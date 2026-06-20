@@ -1,3 +1,14 @@
+// ui.cpp — the LVGL user interface.
+//
+// Builds and owns every on-screen element: the header (clock, indoor/outdoor
+// temps, WiFi-link icon + HA-connection dot), the swipeable 3x3 tile grid driven
+// by the MOSAIC[] array, and the full-screen Nest thermostat detail view. Also
+// handles idle dimming and the wake-from-dim flow (together with touch.cpp).
+//
+// ha_client.cpp pushes live state in through the ui_set_*/ui_update_* setters;
+// taps flow back out via ha_* calls. Layout/visual constants are #defined at the
+// top of this file. Tile icons use the generated mdi_icons font (see tools/).
+
 #include <Arduino.h>
 #include <lvgl.h>
 #include <time.h>

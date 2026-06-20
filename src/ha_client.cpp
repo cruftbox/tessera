@@ -1,3 +1,16 @@
+// ha_client.cpp — Home Assistant client.
+//
+// Maintains the authenticated HA WebSocket connection (/api/websocket): logs in
+// with the long-lived token, subscribes to state_changed events, and pushes
+// updates into the UI via ui_*. Tile taps and thermostat changes are sent back
+// as call_service messages. Initial state and the header temperatures are
+// fetched over REST from ha_loop() (not the WS callback) so they never block the
+// socket. On auth_invalid it stops reconnecting, to avoid HA IP-banning the
+// device in a retry loop.
+//
+// NOTE: the on_message ArduinoJson filter must be sized generously — an
+// undersized filter silently drops the last-added keys (see CLAUDE.md gotchas).
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>

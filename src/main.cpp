@@ -1,3 +1,13 @@
+// main.cpp — firmware entry point.
+//
+// setup() brings the stack up in order: LVGL, the ST7701S display, GT911 touch,
+// the UI, then WiFi. Once WiFi is up it starts NTP time, OTA, and the Home
+// Assistant client. loop() pumps LVGL, ArduinoOTA, and the HA WebSocket, and
+// polls the WiFi link state for the header icon.
+//
+// Per-device secrets and tile layout live in include/config.h (gitignored; copy
+// from config.h.example). See CLAUDE.md for the architecture overview.
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <lvgl.h>

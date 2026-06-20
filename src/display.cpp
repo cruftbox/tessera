@@ -1,3 +1,12 @@
+// display.cpp — ST7701S 480x480 RGB panel via Arduino_GFX, wired to LVGL.
+//
+// Configures the parallel RGB panel + SWSPI init bus (pin map from Arduino_GFX's
+// Guition ESP32-4848S040 device profile), allocates LVGL's two draw buffers in
+// PSRAM, and registers the flush callback. The panel runs at rotation 3 (270°);
+// touch.cpp mirrors that rotation in its coordinate transform. The backlight is
+// a PWM (LEDC) channel on PIN_BACKLIGHT, driven by display_set_backlight() for
+// idle dimming.
+
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <lvgl.h>

@@ -1,3 +1,17 @@
+// touch.cpp — GT911 capacitive-touch driver bridged into LVGL's input system.
+//
+// Beyond a plain touch read, this file owns three behaviours:
+//   - Coordinate transform: the GT911 reports points in the panel's native
+//     orientation, but the display runs at rotation 3 (270°), so raw points are
+//     remapped (x = rawY, y = 479 - rawX) before they reach LVGL.
+//   - Swipe paging: horizontal swipes are detected here on release and turned
+//     into page changes, instead of LVGL's gesture system (which was unreliable
+//     over the full-screen tileview).
+//   - Wake-from-dim: the touch that wakes a dimmed screen is swallowed whole, so
+//     it only brightens the panel and never also taps a tile or fires a swipe.
+//
+// The GT911 library is the vendored, patched TAMC_GT911 (see lib/TAMC_GT911/PATCH.md).
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <TAMC_GT911.h>
