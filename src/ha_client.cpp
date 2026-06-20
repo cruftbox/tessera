@@ -141,40 +141,88 @@ static void fetch_fan_state() {
   }
 }
 
-// Runs from ha_loop() (not the WS callback). Pumps LVGL between entities so the
-// UI keeps ticking across the sequence of blocking REST GETs.
-static void fetch_initial_states() {
-  for (int i = 0; i < MOSAIC_COUNT; i++) {
-    StaticJsonDocument<96> filter;
-    filter["state"] = true;
-    filter["attributes"]["brightness"] = true;
-    filter["attributes"]["percentage"] = true;
-    DynamicJsonDocument doc(384);
-    if (ha_get_state(MOSAIC[i].entity_id, doc, filter)) {
-      const char* state = doc["state"];
-      if (state) {
-        ui_update_tile_state(i, state);
-        set_tile_value(i, MOSAIC[i].entity_id, state, doc["attributes"]);
-      }
+// Fetch one MOSAIC tile's state over REST and push it to the UI. Shared by the
+// staged initial fetch and the optimistic-update resync.
+static void fetch_one_tile(int i) {
+  StaticJsonDocument<96> filter;
+  filter["state"] = true;
+  filter["attributes"]["brightness"] = true;
+  filter["attributes"]["percentage"] = true;
+  DynamicJsonDocument doc(384);
+  if (ha_get_state(MOSAIC[i].entity_id, doc, filter)) {
+    const char* state = doc["state"];
+    if (state) {
+      ui_update_tile_state(i, state);
+      set_tile_value(i, MOSAIC[i].entity_id, state, doc["attributes"]);
     }
-    lv_tick_inc(10);
-    lv_timer_handler();
   }
-  fetch_thermostat();
-  fetch_fan_state();
-  fetch_one_temp(ENTITY_OUTDOOR_TEMP, "temperature", ui_set_outdoor_temp);
-  Serial.println("Initial states fetched");
 }
 
-static bool needs_fetch = false;
+static int tile_index_for(const char* eid) {
+  for (int i = 0; i < MOSAIC_COUNT; i++)
+    if (strcmp(MOSAIC[i].entity_id, eid) == 0) return i;
+  return -1;
+}
+
+// Staged initial fetch (TODO #6): instead of one blocking burst of ~MOSAIC_COUNT+3
+// REST GETs that freezes LVGL/touch for seconds, advance ONE entity per ha_loop()
+// pass so the UI ticks fully between each GET. Steps 0..MOSAIC_COUNT-1 = tiles,
+// then thermostat, fan, outdoor temp. -1 = idle. The 120 s safety-net refetch
+// reuses the tail steps (from FETCH_THERMO).
+static int fetch_step = -1;
+#define FETCH_THERMO  (MOSAIC_COUNT)
+#define FETCH_FAN     (MOSAIC_COUNT + 1)
+#define FETCH_OUTDOOR (MOSAIC_COUNT + 2)
+#define FETCH_DONE    (MOSAIC_COUNT + 3)
+
+static void fetch_step_advance() {
+  if (fetch_step < 0) return;
+  if      (fetch_step < MOSAIC_COUNT)   fetch_one_tile(fetch_step);
+  else if (fetch_step == FETCH_THERMO)  fetch_thermostat();
+  else if (fetch_step == FETCH_FAN)     fetch_fan_state();
+  else if (fetch_step == FETCH_OUTDOOR) fetch_one_temp(ENTITY_OUTDOOR_TEMP, "temperature", ui_set_outdoor_temp);
+  if (++fetch_step >= FETCH_DONE) {
+    fetch_step = -1;
+    Serial.println("Initial states fetched");
+  }
+}
+
+// In-flight tile commands (TODO #5). Tile taps restyle optimistically before HA
+// confirms. We remember each tile command's call_service id + entity so we can
+// resync the tile's REAL state from HA if the command is rejected (result
+// success:false) or no state_changed confirms it within CMD_TIMEOUT_MS —
+// otherwise a rejected/dropped command leaves the tile lying about state forever
+// (the 120 s refetch only covers temps, not tiles).
+struct PendingCmd { bool active; int id; uint32_t deadline; char entity[64]; };
+static PendingCmd pending[8];
+static const uint32_t CMD_TIMEOUT_MS = 5000;
+
+static void track_command(int id, const char* entity_id) {
+  PendingCmd* slot = nullptr;
+  for (PendingCmd& p : pending) if (!p.active) { slot = &p; break; }
+  if (!slot) slot = &pending[0];   // all slots busy (rare): reuse the first
+  slot->active   = true;
+  slot->id       = id;
+  slot->deadline = millis() + CMD_TIMEOUT_MS;
+  strncpy(slot->entity, entity_id, sizeof(slot->entity) - 1);
+  slot->entity[sizeof(slot->entity) - 1] = '\0';
+}
+
+// A real state_changed for this entity confirms the optimistic update — drop any
+// pending command(s) for it so the timeout sweep won't needlessly resync.
+static void confirm_command(const char* entity_id) {
+  for (PendingCmd& p : pending)
+    if (p.active && strcmp(p.entity, entity_id) == 0) p.active = false;
+}
 
 static void on_message(uint8_t* payload, size_t length) {
   // Large doc because get_states response can be big; use filter to trim it.
   // NOTE: this filter doc must be big enough to hold ALL keys below — if it
   // overflows, ArduinoJson silently drops the last-added keys (which caused the
   // thermostat setpoints to come back as 0). Keep capacity comfortably large.
-  StaticJsonDocument<512> filter;
+  StaticJsonDocument<640> filter;
   filter["type"] = true;
+  filter["id"] = true;          // call_service result id (TODO #5 correlation)
   filter["success"] = true;
   filter["event"]["event_type"] = true;
   filter["event"]["data"]["entity_id"] = true;
@@ -215,14 +263,23 @@ static void on_message(uint8_t* payload, size_t length) {
     sub["type"] = "subscribe_events";
     sub["event_type"] = "state_changed";
     send_json(sub);
-    // Trigger initial state fetch from ha_loop()
-    needs_fetch = true;
+    // Kick off the staged initial fetch (one entity per loop) from ha_loop().
+    fetch_step = 0;
 
   } else if (strcmp(type, "auth_invalid") == 0) {
-    Serial.println("HA auth invalid — check HA_TOKEN in config.h");
+    Serial.println("HA auth invalid — check HA_TOKEN in secrets.h");
     ui_set_ha_connected(false);
     ws.disconnect();
     ws.setReconnectInterval(0); // stop reconnecting — bad token would trigger IP ban
+
+  } else if (strcmp(type, "result") == 0) {
+    // call_service acknowledgement. If a tracked tile command was rejected,
+    // mark it for an immediate resync so the optimistic tile gets corrected.
+    if (!(doc["success"] | true)) {
+      int id = doc["id"] | 0;
+      for (PendingCmd& p : pending)
+        if (p.active && p.id == id) p.deadline = millis();
+    }
 
   } else if (strcmp(type, "event") == 0) {
     const char* etype = doc["event"]["event_type"];
@@ -249,6 +306,7 @@ static void on_message(uint8_t* payload, size_t length) {
 
       for (int i = 0; i < MOSAIC_COUNT; i++) {
         if (strcmp(MOSAIC[i].entity_id, eid) == 0) {
+          confirm_command(eid);   // real state arrived — clear any pending tile command
           ui_update_tile_state(i, est);
           set_tile_value(i, eid, est, doc["event"]["data"]["new_state"]["attributes"]);
           return;
@@ -265,7 +323,8 @@ static void ws_event(WStype_t type, uint8_t* payload, size_t length) {
       break;
     case WStype_DISCONNECTED:
       authenticated = false;
-      needs_fetch = false;
+      fetch_step = -1;
+      for (PendingCmd& p : pending) p.active = false;   // drop stale in-flight commands
       ui_set_ha_connected(false);
       Serial.println("HA WebSocket disconnected");
       break;
@@ -286,19 +345,29 @@ void ha_init() {
 
 void ha_loop() {
   ws.loop();
-  if (needs_fetch) {
-    needs_fetch = false;
-    fetch_initial_states();
+
+  // Advance the staged fetch one entity per pass (TODO #6) — at most one blocking
+  // GET per loop, so the UI never freezes through the whole sequence.
+  fetch_step_advance();
+
+  // Resync any tile whose optimistic command failed or was never confirmed by a
+  // state_changed within the timeout (TODO #5), so a tile can't lie about state.
+  for (PendingCmd& p : pending) {
+    if (p.active && (int32_t)(millis() - p.deadline) >= 0) {
+      int idx = tile_index_for(p.entity);
+      if (idx >= 0) fetch_one_tile(idx);
+      p.active = false;
+    }
   }
-  // Periodic safety-net refetch of the header temps, so they self-heal if the
-  // initial fetch landed while HA was still populating (e.g., right after an HA
-  // restart left the temperature attributes null).
+
+  // Periodic safety-net refetch of the header temps (thermostat/fan/outdoor), so
+  // they self-heal if the initial fetch landed while HA was still populating
+  // (e.g., right after an HA restart left the temperature attributes null).
+  // Reuses the staged machine's tail steps so it stays one-GET-per-loop too.
   static uint32_t last_temp_refresh = 0;
-  if (authenticated && millis() - last_temp_refresh > 120000) {
+  if (authenticated && fetch_step < 0 && millis() - last_temp_refresh > 120000) {
     last_temp_refresh = millis();
-    fetch_thermostat();
-    fetch_fan_state();
-    fetch_one_temp(ENTITY_OUTDOOR_TEMP, "temperature", ui_set_outdoor_temp);
+    fetch_step = FETCH_THERMO;
   }
 }
 
@@ -311,6 +380,7 @@ void ha_toggle(const char* entity_id) {
   StaticJsonDocument<256> doc;
   begin_call_service(doc, domain, "toggle", entity_id);
   send_json(doc);
+  track_command(doc["id"].as<int>(), entity_id);   // TODO #5: resync if it fails
 }
 
 void ha_fan_turn_on_pct(const char* entity_id, float pct) {
@@ -319,6 +389,7 @@ void ha_fan_turn_on_pct(const char* entity_id, float pct) {
   begin_call_service(doc, "fan", "turn_on", entity_id);
   doc["service_data"]["percentage"] = pct;
   send_json(doc);
+  track_command(doc["id"].as<int>(), entity_id);   // TODO #5: resync if it fails
 }
 
 void ha_thermo_fan(bool on) {

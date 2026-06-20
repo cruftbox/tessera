@@ -39,16 +39,16 @@ queued for review.
    untouched setpoint never moves and `low == high` is never sent. (Chosen over "send
    only the edited field".)
 
-5. **Optimistic-update correctness** — `ui.cpp` / `ha_client.cpp`. Tile taps restyle
-   optimistically, but `call_service` results are never correlated to `msg_id` and HA
-   errors aren't handled; a rejected/dropped call leaves the tile lying about state.
-   *Decision:* track the in-flight id and revert/flag on failure or a timeout.
+5. ✅ **DONE (2026-06-20) — Optimistic-update correctness** (`ha_client.cpp`). Tile taps
+   are tracked by `call_service` id in a small `pending[]` table; a `result` with
+   `success:false`, or no confirming `state_changed` within 5 s, triggers a REST resync
+   of that tile's real state. A genuine `state_changed` clears the pending command;
+   disconnect drops stale ones. Tiles can no longer lie about state.
 
-6. **Non-blocking initial fetch** — `ha_client.cpp` `fetch_initial_states()` (and the
-   120 s refetch). The initial REST fetch is `MOSAIC_COUNT+3` sequential **blocking**
-   GETs from `ha_loop()`, freezing LVGL/touch for seconds. *Decision:* drive it as a
-   one-entity-per-loop state machine, or switch to a single WS `get_states`; reconsider
-   whether the 120 s REST refetch is needed at all given the WS subscription.
+6. ✅ **DONE (2026-06-20) — Non-blocking initial fetch** (`ha_client.cpp`). Chose option 1:
+   a staged state machine (`fetch_step_advance()`) does ONE entity per `ha_loop()` pass
+   instead of a blocking burst, so the UI never freezes. The 120 s safety-net refetch
+   reuses the machine's tail steps, so it's one-GET-per-loop too.
 
 ### Lower priority / maintainability
 - Consolidate the per-fetch ArduinoJson filter/doc capacity magic-numbers (documented
