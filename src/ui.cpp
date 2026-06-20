@@ -41,7 +41,7 @@ static uint32_t  setpoint_tap_ms  = 0;      // time of last setpoint tap (for de
 static uint32_t  setpoint_send_ms = 0;      // time we last sent (ignore echoes briefly after)
 static bool tile_is_on[MOSAIC_COUNT] = { false };
 static lv_obj_t *status_dot;
-static lv_obj_t *online_label;
+static lv_obj_t *wifi_icon;        // WiFi link status (LV_SYMBOL_WIFI) — distinct from the HA dot
 static lv_obj_t *time_label;
 static lv_obj_t *indoor_temp_label;
 static lv_obj_t *outdoor_temp_label;
@@ -494,22 +494,24 @@ void ui_init() {
   lv_obj_set_style_text_color(outdoor_temp_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
 
   status_dot = lv_obj_create(header);
-  lv_obj_set_size(status_dot, 9, 9);
+  lv_obj_set_size(status_dot, 15, 15);   // match the tile status pips
   lv_obj_set_style_bg_color(status_dot, lv_color_hex(0xA6FFCB), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(status_dot, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_border_width(status_dot, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(status_dot, 5, LV_PART_MAIN);
+  lv_obj_set_style_radius(status_dot, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_width(status_dot, 8, LV_PART_MAIN);
   lv_obj_set_style_shadow_color(status_dot, lv_color_hex(0xA6FFCB), LV_PART_MAIN);
   lv_obj_set_style_shadow_opa(status_dot, LV_OPA_70, LV_PART_MAIN);
   lv_obj_align(status_dot, LV_ALIGN_RIGHT_MID, -16, 0);
 
-  online_label = lv_label_create(header);
-  lv_label_set_text(online_label, "Online");
-  lv_obj_set_style_text_color(online_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-  lv_obj_set_style_text_opa(online_label, 210, LV_PART_MAIN);
-  lv_obj_set_style_text_font(online_label, &lv_font_montserrat_12, LV_PART_MAIN);
-  lv_obj_align_to(online_label, status_dot, LV_ALIGN_OUT_LEFT_MID, -8, 0);
+  // WiFi (link-layer) status icon — separate meaning from the HA dot: this shows
+  // whether the panel is associated with the access point. Starts red (not yet
+  // connected); main.cpp polls WiFi.status() and flips it white once associated.
+  wifi_icon = lv_label_create(header);
+  lv_label_set_text(wifi_icon, LV_SYMBOL_WIFI);
+  lv_obj_set_style_text_font(wifi_icon, &lv_font_montserrat_16, LV_PART_MAIN);
+  lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0xEF4444), LV_PART_MAIN);
+  lv_obj_align_to(wifi_icon, status_dot, LV_ALIGN_OUT_LEFT_MID, -10, 0);
 
   // ---- Count pages ----
   for (int i = 0; i < MOSAIC_COUNT; i++) {
@@ -719,5 +721,12 @@ void ui_set_ha_connected(bool connected) {
     lv_obj_set_style_bg_color(status_dot, c, LV_PART_MAIN);
     lv_obj_set_style_shadow_color(status_dot, c, LV_PART_MAIN);
   }
-  if (online_label) lv_label_set_text(online_label, connected ? "Online" : "Offline");
+}
+
+// WiFi link state (associated to the AP) — independent of the HA connection.
+void ui_set_wifi_connected(bool connected) {
+  if (!wifi_icon) return;
+  lv_obj_set_style_text_color(wifi_icon,
+    connected ? lv_color_hex(0xFFFFFF) : lv_color_hex(0xEF4444), LV_PART_MAIN);
+  lv_obj_set_style_text_opa(wifi_icon, connected ? 230 : 255, LV_PART_MAIN);
 }

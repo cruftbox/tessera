@@ -5,6 +5,7 @@ void ui_init();
 void ui_update_tile_state(int mosaic_idx, const char* state);
 void ui_update_tile_value(int mosaic_idx, const char* value);
 void ui_set_ha_connected(bool connected);
+void ui_set_wifi_connected(bool connected);
 void ui_notify_touch();
 bool ui_is_dimmed();
 void ui_touch_pressed();        // called at the start of each new touch

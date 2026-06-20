@@ -51,5 +51,15 @@ void loop() {
   lv_timer_handler();
   ota_loop();
   ha_loop();
+
+  // Poll WiFi link state for the header WiFi icon (every 2s, update only on change).
+  static uint32_t last_wifi_check = 0;
+  static int last_wifi = -1;
+  if (now - last_wifi_check > 2000) {
+    last_wifi_check = now;
+    int w = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
+    if (w != last_wifi) { last_wifi = w; ui_set_wifi_connected(w != 0); }
+  }
+
   delay(5);
 }
