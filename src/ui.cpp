@@ -37,6 +37,7 @@ extern const lv_font_t mdi_icons;             // generated in src/mdi_icons.c
 // ---- Thermostat (9th-cell tile + full-screen detail view) ----
 #define THERMO_MIN 48
 #define THERMO_MAX 90
+#define THERMO_DEADBAND 2   // min gap (°) held between heat & cool setpoints in dual mode
 static lv_obj_t *thermo_tile, *thermo_tile_val, *thermo_tile_pip, *thermo_tile_icon;
 static ThermoState thermo = { "off", 0, 70, 74, 70, true, false };
 static lv_obj_t *thermo_view;                 // full-screen overlay (hidden by default)
@@ -250,9 +251,12 @@ static void setpoint_cb(lv_event_t* e) {
   if      (which == 0) thermo.low    = clampt(thermo.low + delta);
   else if (which == 1) thermo.high   = clampt(thermo.high + delta);
   else                 thermo.target = clampt(thermo.target + delta);
-  if (thermo.low > thermo.high) {            // keep the band ordered
-    if (which == 0) thermo.high = thermo.low;
-    else            thermo.low  = thermo.high;
+  // In dual mode, clamp the setpoint being edited so it can't cross the other,
+  // holding a minimum gap (deadband). The untouched setpoint never moves; HA/Nest
+  // reject equal or inverted low/high, so we keep them apart.
+  if (thermo.dual) {
+    if      (which == 0 && thermo.low  > thermo.high - THERMO_DEADBAND) thermo.low  = thermo.high - THERMO_DEADBAND;
+    else if (which == 1 && thermo.high < thermo.low  + THERMO_DEADBAND) thermo.high = thermo.low  + THERMO_DEADBAND;
   }
   // Update only the affected value label(s) — a full render_thermo_view() per tap
   // is too heavy (re-blends the whole translucent/gradient view) and feels laggy.

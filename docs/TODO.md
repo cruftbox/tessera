@@ -18,10 +18,10 @@ queued for review.
 
 ### Deferred — design decisions (need a call before implementing)
 
-1. **WiFi / HA / OTA recovery** — `main.cpp`. If WiFi fails to associate in the ~20 s
-   boot window, `ha_init()`/`ota_init()`/NTP never run and are never retried; only a
-   power-cycle recovers. *Decision:* a connection state machine that (re)establishes
-   WiFi and lazily (re)inits HA/OTA on first success. (Pairs with the setup-wizard work.)
+1. ✅ **DONE (2026-06-20) — WiFi / HA / OTA recovery** (`main.cpp`). `setup()` now starts
+   WiFi non-blocking; a state machine in `loop()` lazily inits NTP/OTA/HA on the first
+   successful connect and re-kicks `WiFi.begin()` if WiFi stays down >20 s. Services are
+   only pumped once initialised. No power-cycle needed; UI is responsive at boot.
 
 2. **Thermostat HVAC mode selector** — `ui.cpp` detail view. `ha_climate_set_mode()`
    exists but has no UI caller, so there's no on-device way to turn the system back on
@@ -34,10 +34,10 @@ queued for review.
    also lock `mode`/`dual` during the edit window, or correlate the echo to the in-flight
    command id.
 
-4. **Dual-setpoint crossing behavior** — `ui.cpp:~251`. When one setpoint is moved past
-   the other, the code drags the *un-edited* setpoint to match and sends both to HA.
-   *Decision:* define intended behavior (clamp the edited one only? send only the edited
-   field?) and stop moving the untouched setpoint silently.
+4. ✅ **DONE (2026-06-20) — Dual-setpoint crossing** (`ui.cpp`). The edited setpoint now
+   clamps so it can't cross the other, holding a 2° deadband (`THERMO_DEADBAND`); the
+   untouched setpoint never moves and `low == high` is never sent. (Chosen over "send
+   only the edited field".)
 
 5. **Optimistic-update correctness** — `ui.cpp` / `ha_client.cpp`. Tile taps restyle
    optimistically, but `call_service` results are never correlated to `msg_id` and HA
