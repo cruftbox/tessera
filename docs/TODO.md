@@ -51,8 +51,10 @@ queued for review.
    reuses the machine's tail steps, so it's one-GET-per-loop too.
 
 ### Lower priority / maintainability
-- Consolidate the per-fetch ArduinoJson filter/doc capacity magic-numbers (documented
-  foot-gun — undersizing silently drops keys).
+- ✅ **DONE (2026-06-20)** — Consolidated the ArduinoJson filter/doc capacity magic-numbers
+  into named `FILTER_*`/`DOC_*` constants in `ha_client.cpp`, with a comment flagging the
+  filter-undersizing foot-gun and which constant to grow when adding a key. (Named-constants
+  pass; an ArduinoJson v6→v7 upgrade to remove fixed sizing entirely is still an option.)
 - LVGL draw buffers are 480×20 in PSRAM; a taller buffer and/or an internal-SRAM buffer
   would cut full-screen-redraw overhead.
 - `delay(5)` in `loop()` and the `fan_off_at==0` guard were reviewed and **left as-is**

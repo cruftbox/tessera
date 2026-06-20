@@ -26,6 +26,26 @@ static WebSocketsClient ws;
 static bool authenticated = false;
 static int msg_id = 1;
 
+// --- JSON document capacities (ArduinoJson v6 needs sizes up front) ----------
+// FILTER_* size the deserialization filters and are the DANGEROUS ones: an
+// undersized filter silently drops its last-added keys (this once made the
+// thermostat setpoints read 0). Grow the matching FILTER_* whenever you add a
+// key to that filter. DOC_* size the parsed response / built message; those fail
+// loudly (NoMemory) if too small, so they're lower-risk — but named here so all
+// the sizing lives in one place with rationale instead of scattered literals.
+static constexpr size_t FILTER_STATE  = 32;    // "state" only                    (fetch_fan_state)
+static constexpr size_t FILTER_ATTR   = 64;    // one nested attribute            (fetch_one_temp)
+static constexpr size_t FILTER_TILE   = 96;    // state + brightness + percentage (fetch_one_tile)
+static constexpr size_t FILTER_THERMO = 384;   // state + 5 climate attributes    (fetch_thermostat)
+static constexpr size_t FILTER_EVENT  = 640;   // WS event/result filter          (on_message)
+
+static constexpr size_t DOC_FAN    = 128;      // fetch_fan_state response
+static constexpr size_t DOC_ATTR   = 256;      // fetch_one_temp response
+static constexpr size_t DOC_TILE   = 384;      // fetch_one_tile response
+static constexpr size_t DOC_THERMO = 512;      // fetch_thermostat response
+static constexpr size_t DOC_EVENT  = 8192;     // on_message parse — get_states can be large
+static constexpr size_t DOC_OUT    = 256;      // outgoing call_service / auth / subscribe envelopes
+
 static void send_json(JsonDocument& doc) {
   String s;
   serializeJson(doc, s);
@@ -91,9 +111,9 @@ static bool ha_get_state(const char* eid, JsonDocument& doc, const JsonDocument&
 // the header temperatures, which are not MOSAIC tiles). is<float>() rejects null
 // AND non-numeric values (e.g. "unavailable") so a bad read can't show a fake 0.
 static void fetch_one_temp(const char* eid, const char* attr, void (*setter)(int)) {
-  StaticJsonDocument<64> filter;
+  StaticJsonDocument<FILTER_ATTR> filter;
   filter["attributes"][attr] = true;
-  DynamicJsonDocument doc(256);
+  DynamicJsonDocument doc(DOC_ATTR);
   if (ha_get_state(eid, doc, filter) && doc["attributes"][attr].is<float>())
     setter((int)lroundf(doc["attributes"][attr].as<float>()));
 }
@@ -119,22 +139,22 @@ static void push_thermostat(const char* state, JsonVariantConst attrs) {
 }
 
 static void fetch_thermostat() {
-  StaticJsonDocument<384> filter;
+  StaticJsonDocument<FILTER_THERMO> filter;
   filter["state"] = true;
   filter["attributes"]["current_temperature"] = true;
   filter["attributes"]["target_temp_low"] = true;
   filter["attributes"]["target_temp_high"] = true;
   filter["attributes"]["temperature"] = true;
   filter["attributes"]["hvac_action"] = true;
-  DynamicJsonDocument doc(512);
+  DynamicJsonDocument doc(DOC_THERMO);
   if (ha_get_state(ENTITY_INDOOR_TEMP, doc, filter))
     push_thermostat(doc["state"], doc["attributes"]);
 }
 
 static void fetch_fan_state() {
-  StaticJsonDocument<32> filter;
+  StaticJsonDocument<FILTER_STATE> filter;
   filter["state"] = true;
-  DynamicJsonDocument doc(128);
+  DynamicJsonDocument doc(DOC_FAN);
   if (ha_get_state(ENTITY_THERMO_FAN, doc, filter)) {
     const char* st = doc["state"];
     if (st) ui_set_fan_state(strcmp(st, "on") == 0);
@@ -144,11 +164,11 @@ static void fetch_fan_state() {
 // Fetch one MOSAIC tile's state over REST and push it to the UI. Shared by the
 // staged initial fetch and the optimistic-update resync.
 static void fetch_one_tile(int i) {
-  StaticJsonDocument<96> filter;
+  StaticJsonDocument<FILTER_TILE> filter;
   filter["state"] = true;
   filter["attributes"]["brightness"] = true;
   filter["attributes"]["percentage"] = true;
-  DynamicJsonDocument doc(384);
+  DynamicJsonDocument doc(DOC_TILE);
   if (ha_get_state(MOSAIC[i].entity_id, doc, filter)) {
     const char* state = doc["state"];
     if (state) {
@@ -220,7 +240,7 @@ static void on_message(uint8_t* payload, size_t length) {
   // NOTE: this filter doc must be big enough to hold ALL keys below — if it
   // overflows, ArduinoJson silently drops the last-added keys (which caused the
   // thermostat setpoints to come back as 0). Keep capacity comfortably large.
-  StaticJsonDocument<640> filter;
+  StaticJsonDocument<FILTER_EVENT> filter;
   filter["type"] = true;
   filter["id"] = true;          // call_service result id (TODO #5 correlation)
   filter["success"] = true;
@@ -237,7 +257,7 @@ static void on_message(uint8_t* payload, size_t length) {
   filter["result"][0]["entity_id"] = true;
   filter["result"][0]["state"] = true;
 
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(DOC_EVENT);
   DeserializationError err = deserializeJson(doc, payload, length, DeserializationOption::Filter(filter));
   if (err) {
     Serial.printf("on_message: JSON parse failed (%s)\n", err.c_str());
@@ -248,7 +268,7 @@ static void on_message(uint8_t* payload, size_t length) {
   if (!type) return;
 
   if (strcmp(type, "auth_required") == 0) {
-    StaticJsonDocument<256> auth;
+    StaticJsonDocument<DOC_OUT> auth;
     auth["type"] = "auth";
     auth["access_token"] = HA_TOKEN;
     send_json(auth);
@@ -258,7 +278,7 @@ static void on_message(uint8_t* payload, size_t length) {
     ui_set_ha_connected(true);
     Serial.println("HA authenticated");
     // Subscribe to state_changed events
-    StaticJsonDocument<96> sub;
+    StaticJsonDocument<DOC_OUT> sub;
     sub["id"] = msg_id++;
     sub["type"] = "subscribe_events";
     sub["event_type"] = "state_changed";
@@ -377,7 +397,7 @@ void ha_toggle(const char* entity_id) {
   // light/switch/fan toggle through their own domain; anything else uses the generic one.
   if (strcmp(domain, "light") && strcmp(domain, "switch") && strcmp(domain, "fan"))
     strcpy(domain, "homeassistant");
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, domain, "toggle", entity_id);
   send_json(doc);
   track_command(doc["id"].as<int>(), entity_id);   // TODO #5: resync if it fails
@@ -385,7 +405,7 @@ void ha_toggle(const char* entity_id) {
 
 void ha_fan_turn_on_pct(const char* entity_id, float pct) {
   if (!authenticated) return;
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, "fan", "turn_on", entity_id);
   doc["service_data"]["percentage"] = pct;
   send_json(doc);
@@ -394,14 +414,14 @@ void ha_fan_turn_on_pct(const char* entity_id, float pct) {
 
 void ha_thermo_fan(bool on) {
   if (!authenticated) return;
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, "fan", on ? "turn_on" : "turn_off", ENTITY_THERMO_FAN);
   send_json(doc);
 }
 
 void ha_climate_set_mode(const char* mode) {
   if (!authenticated) return;
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, "climate", "set_hvac_mode", ENTITY_INDOOR_TEMP);
   doc["service_data"]["hvac_mode"] = mode;
   send_json(doc);
@@ -409,7 +429,7 @@ void ha_climate_set_mode(const char* mode) {
 
 void ha_climate_set_temp_dual(int low, int high) {
   if (!authenticated) return;
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, "climate", "set_temperature", ENTITY_INDOOR_TEMP);
   doc["service_data"]["target_temp_low"] = low;
   doc["service_data"]["target_temp_high"] = high;
@@ -418,7 +438,7 @@ void ha_climate_set_temp_dual(int low, int high) {
 
 void ha_climate_set_temp_single(int target) {
   if (!authenticated) return;
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DOC_OUT> doc;
   begin_call_service(doc, "climate", "set_temperature", ENTITY_INDOOR_TEMP);
   doc["service_data"]["temperature"] = target;
   send_json(doc);
