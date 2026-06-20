@@ -55,14 +55,23 @@ Configuration is split in two, and **neither file is committed**:
   `include/config.h`. This file holds no secrets, so it's safe to share or paste
   into an LLM (see [Adding devices](#adding-devices)).
 
-1. **Add your devices**
+1. **Install PlatformIO** — the build/flash toolchain. Install either the
+   [PlatformIO IDE extension for VS Code](https://platformio.org/install/ide?install=vscode)
+   or the command-line core (`pip install platformio`); see
+   [platformio.org/install](https://platformio.org/install) for all options.
+
+2. **Connect the panel** to your computer with a **data-capable** USB cable (a
+   charge-only cable won't work). It appears as a serial port — `COMx` on Windows,
+   `/dev/tty.*` on macOS/Linux — which the wizard auto-detects when it flashes.
+
+3. **Add your devices**
    ```sh
    cp include/config.h.example include/config.h
    ```
    Edit `include/config.h`: list your tiles in `MOSAIC[]` and set the header
    thermostat/weather entities.
 
-2. **Run the setup wizard** (gathers credentials, then flashes)
+4. **Run the setup wizard** (gathers credentials, then flashes)
    ```sh
    python setup_wizard.py
    ```
