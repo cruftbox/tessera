@@ -28,7 +28,7 @@ lib/TAMC_GT911/  vendored patched touch lib (+ PATCH.md)
 tools/  icon-font generation (@mdi/font + lv_font_conv)  [node_modules gitignored]
 setup_wizard.py  host-side first-run wizard (writes include/secrets.h, validates token, flashes)
 serial_read.py   serial monitor helper
-docs/   SETUP_WIZARD_PLAN.md
+docs/   TODO.md (deferred design decisions)
 platformio.ini, partitions_16MB_ota.csv
 ```
 
@@ -58,7 +58,7 @@ platformio.ini, partitions_16MB_ota.csv
 ## Roadmap / next up
 - **Done:** OTA (ArduinoOTA wireless updates); setup wizard (host-side `setup_wizard.py` —
   chose Model A, a PC-side CLI that writes `secrets.h` + flashes, **not** the captive-portal+NVS
-  approach originally sketched in `docs/SETUP_WIZARD_PLAN.md`); secret-free `config.h`;
+  approach originally considered); secret-free `config.h`;
   LLM-friendly "Adding devices" docs.
 - **Next:** review deferred design decisions in `docs/TODO.md` (WiFi/HA recovery, thermostat
   HVAC mode selector, mid-edit desync, dual-setpoint crossing, optimistic-update correctness,
