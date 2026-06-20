@@ -24,7 +24,24 @@ A Home Assistant wall-panel controller for the **Guition ESP32-S3-4848S040** —
 ## Toolchain
 
 - [PlatformIO](https://platformio.org/) + Arduino framework
-- LVGL 8.4, Arduino_GFX, TAMC_GT911, links2004/WebSockets, ArduinoJson (pinned in `platformio.ini`)
+- LVGL 8.4, Arduino_GFX, links2004/WebSockets, ArduinoJson (pinned in `platformio.ini`); `TAMC_GT911` is vendored under `lib/` (patched — see [Known setup notes](#known-setup-notes))
+
+## Requirements
+
+Before you start, you'll need:
+
+- **A running Home Assistant instance** on your network, reachable over HTTP
+  (default port `8123`) with the WebSocket API enabled (on by default). Tessera is
+  a controller — it does **not** run Home Assistant itself.
+- **A Home Assistant long-lived access token** (HA → your profile → *Long-Lived
+  Access Tokens*) for the panel to authenticate with.
+- **The entities you want to control** already configured in Home Assistant —
+  lights, switches, fans, a `climate` thermostat, and a `weather` entity for the
+  outdoor temperature.
+- **A 2.4 GHz WiFi network** — the ESP32-S3 does not support 5 GHz. The panel and
+  Home Assistant must be reachable on the same network.
+- **A computer with [PlatformIO](https://platformio.org/)** and a USB cable for the
+  initial flash (later updates can go over the network via OTA).
 
 ## Setup
 
@@ -41,6 +58,30 @@ A Home Assistant wall-panel controller for the **Guition ESP32-S3-4848S040** —
    pio run --target upload
    ```
 
+## Working with an LLM (recommended)
+
+Tessera is built to be configured and extended with an AI coding assistant
+(Claude, etc.) — and doing so is genuinely the easiest path. The config and the
+code are deliberately self-describing for exactly this.
+
+- **Setup & install** — paste this README and `include/config.h.example` into an
+  LLM and describe your setup ("Home Assistant at `192.168.x.x`, these devices…").
+  It can fill in `MOSAIC[]`, pick `ICON_*` glyphs, and walk you through getting a
+  long-lived token and flashing.
+- **Adding or changing devices** — paste your `config.h` and say *"add my garage
+  light, entity `switch.garage`."* Every field (`label`, `entity_id`, `page`,
+  `on_pct`, `icon`) is commented and the available icons are listed, so the model
+  has what it needs to produce a correct `MOSAIC[]` row.
+- **Modifying the firmware** — each source file carries a module-header comment
+  describing its role and gotchas, so an assistant can orient quickly to make UI
+  or behavior changes.
+- **Troubleshooting** — share serial output or symptoms; common pitfalls (the
+  touch coordinate transform, ArduinoJson filter sizing, HA token / IP-ban) are
+  documented in the code and below.
+
+You don't *need* an LLM — everything is editable by hand — but the project is
+structured to make AI-assisted setup and extension fast and reliable.
+
 ## Icons
 
 Tile/header icons come from a generated LVGL font (`src/mdi_icons.c`) built from
@@ -51,11 +92,12 @@ then add matching `ICON_*` defines in `config.h`.
 
 ## Known setup notes
 
-- **GT911 patch**: the `TAMC_GT911` library calls `pinMode()` on the INT/RST pins
-  even when they're unused (`-1`), which on this board logs `Invalid IO 255`. The
-  fix is to guard those pin operations in `reset()`. Because the library lives under
-  `.pio/libdeps/` (not committed), this patch must be re-applied after a fresh
-  dependency install. (Proper fix — vendoring a patched copy under `lib/` — is TODO.)
+- **GT911 patch**: the upstream `TAMC_GT911` library calls `pinMode()` on the
+  INT/RST pins even when they're unused (`-1`), which on this board logs
+  `Invalid IO 255`. A patched copy is **vendored under `lib/TAMC_GT911`** (the
+  INT/RST pin operations in `reset()` are guarded), so a fresh `git clone` + build
+  works with no manual patching — and it is intentionally **not** in `lib_deps`, so
+  a dependency install can't overwrite it. See `lib/TAMC_GT911/PATCH.md`.
 - Serial output requires `ARDUINO_USB_CDC_ON_BOOT=0` (already set in `platformio.ini`)
   so logging goes to the CH340 UART rather than native USB-CDC.
 
