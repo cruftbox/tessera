@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 #include <lvgl.h>
 #include "display.h"
 #include "touch.h"
@@ -12,7 +11,6 @@ static lv_indev_drv_t indev_drv;
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); // wait for monitor to attach
   Serial.println("Tessera starting...");
 
   lv_init();
@@ -37,19 +35,6 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
     configTzTime(TZ_INFO, NTP_SERVER);
-
-    // Verify token via REST API /api/ endpoint
-    {
-      HTTPClient http;
-      String url = String("http://") + HA_HOST + ":" + HA_PORT + "/api/";
-      http.begin(url);
-      http.addHeader("Authorization", String("Bearer ") + HA_TOKEN);
-      int code = http.GET();
-      Serial.printf("Token check: HTTP %d\n", code);
-      if (code > 0) Serial.println(http.getString().substring(0, 80));
-      http.end();
-    }
-
     ha_init();
   } else {
     Serial.println("WiFi connect failed — check WIFI_SSID/WIFI_PASSWORD in config.h");
