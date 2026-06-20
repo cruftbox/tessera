@@ -35,8 +35,9 @@ Before you start, you'll need:
 - **A running Home Assistant instance** on your network, reachable over HTTP
   (default port `8123`) with the WebSocket API enabled (on by default). Tessera is
   a controller — it does **not** run Home Assistant itself.
-- **A Home Assistant long-lived access token** (HA → your profile → *Long-Lived
-  Access Tokens*) for the panel to authenticate with.
+- **A Home Assistant long-lived access token** (HA → your profile → **Security** →
+  *Long-Lived Access Tokens*, at the bottom of the page) for the panel to
+  authenticate with.
 - **The entities you want to control** already configured in Home Assistant —
   lights, switches, fans, a `climate` thermostat, and a `weather` entity for the
   outdoor temperature.
@@ -60,18 +61,24 @@ Configuration is split in two, and **neither file is committed**:
    or the command-line core (`pip install platformio`); see
    [platformio.org/install](https://platformio.org/install) for all options.
 
-2. **Connect the panel** to your computer with a **data-capable** USB cable (a
+2. **Get the code**
+   ```sh
+   git clone https://github.com/cruftbox/tessera.git
+   cd tessera
+   ```
+
+3. **Connect the panel** to your computer with a **data-capable** USB cable (a
    charge-only cable won't work). It appears as a serial port — `COMx` on Windows,
    `/dev/tty.*` on macOS/Linux — which the wizard auto-detects when it flashes.
 
-3. **Add your devices**
+4. **Add your devices**
    ```sh
    cp include/config.h.example include/config.h
    ```
    Edit `include/config.h`: list your tiles in `MOSAIC[]` and set the header
-   thermostat/weather entities.
+   thermostat/weather entities — see [Adding devices](#adding-devices).
 
-4. **Run the setup wizard** (gathers credentials, then flashes)
+5. **Run the setup wizard** (gathers credentials, then flashes)
    ```sh
    python setup_wizard.py
    ```
@@ -79,12 +86,35 @@ Configuration is split in two, and **neither file is committed**:
    you where to find it), and timezone (pick from a list); **validates the token
    against your Home Assistant instance** before continuing; writes
    `include/secrets.h`; then offers to flash the panel over USB and confirm it
-   connects. Run it with the PlatformIO Python so `pyserial`/`platformio` are
-   available — the script header shows the exact path per OS.
+   connects. Run it with the PlatformIO Python, which bundles `pyserial` — on
+   Windows that's
+   `& "$env:USERPROFILE\.platformio\penv\Scripts\python.exe" setup_wizard.py`;
+   the script header lists the macOS/Linux paths.
 
    *Prefer to do it by hand?* Copy `include/secrets.h.example` to
    `include/secrets.h`, fill it in, and build with `pio run --target upload` (set
-   the correct port in `platformio.ini`).
+   your panel's port with `--upload-port <port>` or in `platformio.ini`).
+
+## Updating over the air (OTA)
+
+After the first USB flash, later updates can go over WiFi — no cable. Flash with
+the `tessera_ota` environment, pointed at *your* panel's IP:
+
+```sh
+pio run -e tessera_ota -t upload --upload-port <panel-ip>
+```
+
+Find the IP in your router's device list (or the panel's serial log on first
+boot). The `upload_port` baked into `platformio.ini` is only a default —
+override it per panel with `--upload-port`.
+
+On **Windows**, the host firewall must let PlatformIO's `espota` helper receive
+the panel's connection back, or the upload fails with *"No response from
+device"*. If you hit that, allow
+`…\.platformio\penv\Scripts\python.exe` through the firewall (Private **and**
+Public profiles). A failed OTA is safe — it writes to the inactive flash slot and
+only switches over after a complete, verified transfer. Serial logging needs USB;
+it isn't available over OTA.
 
 ## Working with an LLM (recommended)
 
@@ -179,6 +209,10 @@ To add a glyph that isn't in the catalog:
   a dependency install can't overwrite it. See `lib/TAMC_GT911/PATCH.md`.
 - Serial output requires `ARDUINO_USB_CDC_ON_BOOT=0` (already set in `platformio.ini`)
   so logging goes to the CH340 UART rather than native USB-CDC.
+- **The serial port is hardcoded to `COM7`** in `serial_read.py` and `platformio.ini`
+  (`monitor_port`/`upload_port`). The setup wizard auto-detects the port when it
+  flashes, so this only matters for the serial monitor or a manual `pio` upload —
+  change it to your panel's port (`COMx`, or `/dev/tty.*` on macOS/Linux).
 
 ## Project layout
 
