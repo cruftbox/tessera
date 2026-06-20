@@ -5,6 +5,7 @@
 #include "touch.h"
 #include "ui.h"
 #include "ha_client.h"
+#include "ota.h"
 #include "config.h"
 
 static lv_indev_drv_t indev_drv;
@@ -35,6 +36,7 @@ void setup() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
     configTzTime(TZ_INFO, NTP_SERVER);
+    ota_init();
     ha_init();
   } else {
     Serial.println("WiFi connect failed — check WIFI_SSID/WIFI_PASSWORD in config.h");
@@ -47,6 +49,7 @@ void loop() {
   lv_tick_inc(now - last_tick);
   last_tick = now;
   lv_timer_handler();
+  ota_loop();
   ha_loop();
   delay(5);
 }
