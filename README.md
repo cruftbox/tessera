@@ -5,7 +5,7 @@ A Home Assistant wall-panel controller for the **Guition ESP32-S3-4848S040** —
 > **Why "Tessera"?** A *tessera* is a single small tile used to build a mosaic. The name fits a screen made of device tiles — and the configuration array that defines them is, fittingly, called `MOSAIC[]`.
 
 <p align="center">
-  <img src="docs/tessera-panel.jpg" alt="Tessera running on a Guition ESP32-S3-4848S040: a 3×3 grid of device tiles with a header clock and indoor/outdoor temperatures" width="420">
+  <img src="docs/tessera-panel.jpg" alt="Tessera running on a Guition ESP32-S3-4848S040 in a 3D-printed stand: a 3×3 grid of device tiles with a header clock and indoor/outdoor temperatures" width="420">
 </p>
 
 ## Features
@@ -24,6 +24,7 @@ A Home Assistant wall-panel controller for the **Guition ESP32-S3-4848S040** —
 - Guition ESP32-S3-4848S040 (ESP32-S3-WROOM-1 N16R8, 16 MB flash, 8 MB PSRAM)
 - ST7701S RGB display, GT911 capacitive touch
 - CH340 USB-serial (appears as a COM port)
+- **3D-printed stand** for the Guition ESP32-S3-4848S040: [Thingiverse thing:7373058](https://www.thingiverse.com/thing:7373058)
 
 ## Toolchain
 
