@@ -2,6 +2,8 @@
 
 A Home Assistant wall-panel controller for the **Guition ESP32-S3-4848S040** — a 4" 480×480 capacitive-touch display. Tessera shows a grid of device tiles that toggle Home Assistant entities over the WebSocket API, plus indoor/outdoor temperatures and a full thermostat control view.
 
+> **Why "Tessera"?** A *tessera* is a single small tile used to build a mosaic. The name fits a screen made of device tiles — and the configuration array that defines them is, fittingly, called `MOSAIC[]`.
+
 <p align="center">
   <img src="docs/tessera-panel.jpg" alt="Tessera running on a Guition ESP32-S3-4848S040: a 3×3 grid of device tiles with a header clock and indoor/outdoor temperatures" width="420">
 </p>
