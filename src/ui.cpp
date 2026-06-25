@@ -121,10 +121,14 @@ static void tile_btn_cb(lv_event_t* e) {
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   const Tessera& t = MOSAIC[idx];
   // Fan with a configured start speed, currently off -> turn on at that %.
-  // Otherwise (already on, or no on_pct) fall back to plain toggle.
-  bool turn_on_at_pct = (t.on_pct > 0 && !tile_is_on[idx] && strncmp(t.entity_id, "fan.", 4) == 0);
+  // Light with a configured color temp, currently off -> turn on at that Kelvin.
+  // Otherwise (already on, or no override) fall back to plain toggle.
+  bool turn_on_at_pct    = (t.on_pct > 0    && !tile_is_on[idx] && strncmp(t.entity_id, "fan.", 4) == 0);
+  bool turn_on_at_kelvin = (t.on_kelvin > 0 && !tile_is_on[idx] && strncmp(t.entity_id, "light.", 6) == 0);
   if (turn_on_at_pct) {
     ha_fan_turn_on_pct(t.entity_id, t.on_pct);
+  } else if (turn_on_at_kelvin) {
+    ha_light_turn_on_kelvin(t.entity_id, t.on_kelvin);
   } else {
     ha_toggle(t.entity_id);
   }
@@ -133,7 +137,7 @@ static void tile_btn_cb(lv_event_t* e) {
   // Only do this if we're actually connected — otherwise the command wasn't sent
   // and the tile would lie about a change that didn't happen (header dot stays red).
   if (ha_is_connected()) {
-    bool predicted_on = turn_on_at_pct ? true : !tile_is_on[idx];
+    bool predicted_on = (turn_on_at_pct || turn_on_at_kelvin) ? true : !tile_is_on[idx];
     ui_update_tile_state(idx, predicted_on ? "on" : "off");
   }
 }

@@ -57,24 +57,28 @@ struct Tessera {
                           //   at this % speed (e.g. 16.67 for a 6-speed fan's
                           //   lowest step) instead of 100%. Ignored for non-fans.
   const char* icon;       // an ICON_* name from the catalog above (required)
+  uint16_t on_kelvin;     // 0 = no change. For a color-temp ("tunable white") light,
+                          //   >0 sets this color temperature in Kelvin when turning on
+                          //   (e.g. 3000). Ignored for non-color-temp lights / non-lights.
 };
 
-// ADDING A DEVICE: add a row to MOSAIC[] with the five fields below. The entity
-// must already exist in Home Assistant. Pick an icon from the ICON_* catalog
+// ADDING A DEVICE: add a row to MOSAIC[] with the fields below (on_kelvin is
+// optional — leave it 0, or omit it, for anything that isn't a tunable-white
+// light). The entity must already exist in Home Assistant. Pick an icon from the ICON_* catalog
 // above. Example — a garage light on page 0:
 //     { "Garage", "switch.garage", 0, 0, ICON_LIGHTBULB },
 // See the README "Adding devices" section for a full walkthrough (and how to add
 // a brand-new icon if none of the ICON_* names fit).
 static const Tessera MOSAIC[] = {
-  // label              entity_id                          page  on_pct  icon
-  { "Office Fan Light", "light.office_main_light",            0,   0,     ICON_LIGHTBULB },
-  { "Office Fan",       "fan.office_main_fan",                0,  16.67,  ICON_FAN },
-  { "Girls Room",       "switch.girls_room",                  0,   0,     ICON_BED },
-  { "Hallway",          "switch.hallway_light",               0,   0,     ICON_CEILING_LIGHT },
-  { "Front Room",       "light.front_room",                   0,   0,     ICON_SOFA },
-  { "Front Porch",      "switch.porch_light",                 0,   0,     ICON_COACH_LAMP },
-  { "Girls Room Fan Light", "light.girls_room_fan_main_light", 0,  0,     ICON_FAN_LIGHT },
-  { "Girls Room Fan",       "fan.girls_room_fan_main_fan",     0,  0,     ICON_FAN },
+  // label              entity_id                          page  on_pct  icon                 on_kelvin
+  { "Office Fan Light", "light.office_main_light",            0,   0,     ICON_LIGHTBULB,      3000 },
+  { "Office Fan",       "fan.office_main_fan",                0,  16.67,  ICON_FAN,            0 },
+  { "Girls Room",       "switch.girls_room",                  0,   0,     ICON_BED,            0 },
+  { "Hallway",          "switch.hallway_light",               0,   0,     ICON_CEILING_LIGHT,  0 },
+  { "Front Room",       "light.front_room",                   0,   0,     ICON_SOFA,           0 },
+  { "Front Porch",      "switch.porch_light",                 0,   0,     ICON_COACH_LAMP,     0 },
+  { "Girls Room Fan Light", "light.girls_room_fan_main_light", 0,  0,     ICON_FAN_LIGHT,      3000 },
+  { "Girls Room Fan",       "fan.girls_room_fan_main_fan",     0,  0,     ICON_FAN,            0 },
 };
 
 static const int MOSAIC_COUNT = sizeof(MOSAIC) / sizeof(MOSAIC[0]);
