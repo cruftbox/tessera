@@ -22,3 +22,6 @@ __pycache__/
 # Design prompts — not for the repo
 tessera-prompt.md
 *ESP32 Smart.md
+
+# Local Claude project notes (contain personal/host details) — not for the repo
+CLAUDE.md
